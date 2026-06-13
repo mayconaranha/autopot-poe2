@@ -1,0 +1,6 @@
+mss
+numpy
+pydirectinput
+keyboard
+rapidocr_onnxruntime
+opencv-python

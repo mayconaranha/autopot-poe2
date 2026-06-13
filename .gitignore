@@ -1,0 +1,16 @@
+# Build
+build/
+dist/
+*.spec
+.venv-build/
+AutoPoE.exe
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Runtime
+*.pid
+*.log
+config.json
