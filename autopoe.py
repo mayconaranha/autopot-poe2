@@ -36,8 +36,9 @@ PID_FILE    = os.path.join(BASE_DIR, "autopoe.pid")
 
 HP_THRESHOLD  = 50
 POT_COOLDOWN  = 1.0      # segundos entre poções do mesmo tipo
-SCAN_INTERVAL = 0.1      # ritmo do loop
+SCAN_INTERVAL = 0.05     # ritmo do loop de detecção
 OCR_INTERVAL  = 0.15     # não vale a pena rodar o OCR mais rápido que isso
+KEYS_INTERVAL = 0.01     # granularidade da thread das teclas automáticas
 HOTKEY        = "f6"
 
 # ─── Paleta de cores ─────────────────────────────────────────────────────────
@@ -130,8 +131,21 @@ def save_config(data: dict):
 
 # ─── App Principal ───────────────────────────────────────────────────────────
 
+def _boost_timer_resolution():
+    """
+    Por padrão o Windows tem resolução de timer de ~15ms, o que faz os sleeps
+    curtos tremerem. Pedimos 1ms pra as teclas automáticas baterem no ritmo certo.
+    """
+    try:
+        import ctypes
+        ctypes.windll.winmm.timeBeginPeriod(1)
+    except Exception:
+        pass
+
+
 class App:
     def __init__(self):
+        _boost_timer_resolution()
         self.config = load_config()
         self.region: dict | None      = self.config.get("life_region")
         self.mana_region: dict | None = self.config.get("mana_region")
@@ -144,6 +158,7 @@ class App:
         self._mana_fail    = 0
         self._running      = True
         self._thread: threading.Thread | None = None
+        self._keys_thread: threading.Thread | None = None
         self._log_queue: queue.Queue = queue.Queue()
 
         self._hp_threshold   = self.config.get("hp_threshold", HP_THRESHOLD)
@@ -158,6 +173,7 @@ class App:
         # Teclas automáticas: lista de {key, interval}
         self._keypresses: list[dict] = list(self.config.get("keypresses", []))
         self._keypress_last: dict[int, float] = {}
+        self._keypress_log_last: dict[int, float] = {}
         self._keypress_widgets: list[dict] = []
 
         self._build_ui()
@@ -398,12 +414,16 @@ class App:
     # ── Loop de detecção ─────────────────────────────────────────────────────
 
     def _start_loop(self):
-        if self._thread and self._thread.is_alive():
-            return
-        self._thread = threading.Thread(target=self._loop, daemon=True)
-        self._thread.start()
+        # Detecção (OCR + flasks) e teclas automáticas rodam em threads separadas:
+        # assim a leitura de OCR não atrasa o ritmo das teclas.
+        if not (self._thread and self._thread.is_alive()):
+            self._thread = threading.Thread(target=self._detect_loop, daemon=True)
+            self._thread.start()
+        if not (self._keys_thread and self._keys_thread.is_alive()):
+            self._keys_thread = threading.Thread(target=self._keys_loop, daemon=True)
+            self._keys_thread.start()
 
-    def _loop(self):
+    def _detect_loop(self):
         while self._running:
             if self.active:
                 now = time.time()
@@ -413,8 +433,13 @@ class App:
                         self._check_life(now)
                     if self._mana_enabled and self.mana_region:
                         self._check_mana(now)
-                self._auto_keys(now)
             time.sleep(SCAN_INTERVAL)
+
+    def _keys_loop(self):
+        while self._running:
+            if self.active:
+                self._auto_keys(time.time())
+            time.sleep(KEYS_INTERVAL)
 
     def _check_life(self, now: float):
         pct = detect.read_percent(self.region)
@@ -457,7 +482,10 @@ class App:
             if now - self._keypress_last.get(idx, 0.0) >= interval:
                 pydirectinput.press(key)
                 self._keypress_last[idx] = now
-                self._log(f"Tecla '{key}' pressionada (a cada {interval:.1f}s)")
+                # Log throttlado: em intervalos curtos seria spam demais.
+                if now - self._keypress_log_last.get(idx, 0.0) >= 3.0:
+                    self._keypress_log_last[idx] = now
+                    self._log(f"Tecla '{key}' ativa (a cada {interval:.1f}s)")
 
     # ── Ações ────────────────────────────────────────────────────────────────
 
