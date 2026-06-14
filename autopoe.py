@@ -20,6 +20,10 @@ import pydirectinput
 
 import detect
 
+# pydirectinput pausa 0.1s depois de cada tecla por padrão, o que limitaria os
+# intervalos curtos (ex.: 0.1s). Reduzimos pra deixar as teclas rápidas responsivas.
+pydirectinput.PAUSE = 0.02
+
 # ─── Constantes ──────────────────────────────────────────────────────────────
 
 if getattr(sys, "frozen", False):
@@ -540,7 +544,7 @@ class App:
                  font=("Consolas", 9)).pack(side="left")
         interval_val = kp.get("interval", 1.0)
         sl = tk.Scale(row, from_=0, to=60, orient="horizontal", length=180,
-                      resolution=0.5, showvalue=False,
+                      resolution=0.1, showvalue=False,
                       command=lambda v, i=idx: self._on_kp_interval_change(i, v),
                       bg=C_CARD, fg=C_FG, troughcolor=C_BG,
                       activebackground=C_ORANGE, highlightthickness=0,
