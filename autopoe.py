@@ -15,10 +15,10 @@ import time
 import tkinter as tk
 from datetime import datetime
 
-import keyboard as kb
 import pydirectinput
 
 import detect
+import hotkey
 
 # pydirectinput pausa 0.1s depois de cada tecla por padrão, o que limitaria os
 # intervalos curtos (ex.: 0.1s). Reduzimos pra deixar as teclas rápidas responsivas.
@@ -166,7 +166,8 @@ class App:
         self._life_key       = self.config.get("life_key", "1")
         self._mana_key       = self.config.get("mana_key", "2")
         self._hotkey         = self.config.get("hotkey", HOTKEY)
-        self._hotkey_handle  = None
+        self._hotkeys: hotkey.HotkeyManager | None = None
+        self._toggle_requested = False
         self._hp_enabled     = self.config.get("hp_enabled", True)
         self._mana_enabled   = self.config.get("mana_enabled", True)
 
@@ -182,6 +183,7 @@ class App:
         self._register_hotkey()
         self.root.protocol("WM_DELETE_WINDOW", self._close)
         self._tick_ui()
+        self._poll_hotkey()
 
         self.root.focus_force()
         self.root.bind_all("<Button-1>", self._unfocus_entry, add="+")
@@ -672,52 +674,60 @@ class App:
                 self._log(f"Mana → leu '{txt}'  ({pct_s})")
         threading.Thread(target=work, daemon=True).start()
 
+    _MODIFIER_KEYSYMS = {
+        "Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
+        "Win_L", "Win_R", "Super_L", "Super_R", "Meta_L", "Meta_R",
+    }
+
     def _register_hotkey(self):
-        if self._hotkey_handle is not None:
-            try:
-                kb.remove_hotkey(self._hotkey_handle)
-            except Exception:
-                pass
-            self._hotkey_handle = None
-        try:
-            self._hotkey_handle = kb.add_hotkey(
-                self._hotkey, lambda: self.root.after(0, self._toggle))
-        except Exception:
-            self._log(f"Tecla '{self._hotkey}' inválida — liga/desliga sem atalho.")
+        if self._hotkeys is None:
+            # O callback roda na thread do hotkey; só marca a flag. Quem chama o
+            # _toggle é o poller no lado do Tk (root.after de outra thread não é
+            # thread-safe).
+            self._hotkeys = hotkey.HotkeyManager(self._request_toggle)
+        if not self._hotkeys.set_hotkey(self._hotkey):
+            self._log(f"Tecla '{self._hotkey}' inválida — usando F6.")
+            self._hotkey = "f6"
+            self._hotkeys.set_hotkey("f6")
+
+    def _request_toggle(self):
+        self._toggle_requested = True
+
+    def _poll_hotkey(self):
+        if self._toggle_requested:
+            self._toggle_requested = False
+            self._toggle()
+        self.root.after(50, self._poll_hotkey)
 
     def _capture_hotkey(self):
-        """Espera a próxima tecla e usa ela como liga/desliga."""
+        """Espera a próxima tecla apertada na janela e usa como liga/desliga."""
         self.btn_hotkey.config(text="pressione…")
-        # tira o atalho atual pra ele não disparar durante a captura
-        if self._hotkey_handle is not None:
-            try:
-                kb.remove_hotkey(self._hotkey_handle)
-            except Exception:
-                pass
-            self._hotkey_handle = None
+        self.root.bind_all("<Key>", self._on_capture_key)
+        self.root.focus_force()
 
-        def work():
-            try:
-                key = kb.read_hotkey(suppress=False)
-            except Exception:
-                key = self._hotkey
-            self.root.after(0, lambda: self._set_hotkey(key))
-
-        threading.Thread(target=work, daemon=True).start()
+    def _on_capture_key(self, event):
+        if event.keysym in self._MODIFIER_KEYSYMS:
+            return  # espera uma tecla "de verdade", não só Ctrl/Shift/Alt
+        self.root.unbind_all("<Key>")
+        self._set_hotkey(event.keysym.lower())
 
     def _set_hotkey(self, key: str):
         key = (key or self._hotkey).strip().lower()
+        if self._hotkeys is None or not self._hotkeys.set_hotkey(key):
+            self._log(f"Tecla '{key}' não suportada — mantendo {self._hotkey.upper()}.")
+            self.btn_hotkey.config(text=self._hotkey.upper())
+            return
         self._hotkey = key
         self.config["hotkey"] = key
         save_config(self.config)
-        self._register_hotkey()
         self.btn_hotkey.config(text=key.upper())
         self.lbl_hotkey.config(text=f"{key.upper()} = on/off")
         self._log(f"Tecla liga/desliga: {key.upper()}")
 
     def _close(self):
         self._running = False
-        kb.unhook_all()
+        if self._hotkeys is not None:
+            self._hotkeys.stop()
         self.root.destroy()
 
 
@@ -763,11 +773,6 @@ if __name__ == "__main__":
 
     with open(PID_FILE, "w") as f:
         f.write(str(os.getpid()))
-
-    try:
-        kb.unhook_all()
-    except Exception:
-        pass
 
     try:
         App()

@@ -10,7 +10,7 @@ call .venv-build\Scripts\activate.bat
 echo Instalando dependencias (headless)...
 python -m pip install --upgrade pip
 REM RapidOCR exige opencv-python (full); instalamos sem deps e pomos o headless na mao.
-pip install numpy opencv-python-headless pyclipper shapely six pyyaml onnxruntime Pillow mss pydirectinput keyboard
+pip install numpy opencv-python-headless pyclipper shapely six pyyaml onnxruntime Pillow mss pydirectinput
 pip install rapidocr_onnxruntime --no-deps
 pip install pyinstaller
 
@@ -20,7 +20,6 @@ pyinstaller --onefile --noconsole --name AutoPoE ^
   --collect-all rapidocr_onnxruntime ^
   --collect-all onnxruntime ^
   --hidden-import pydirectinput ^
-  --hidden-import keyboard ^
   --hidden-import mss ^
   --hidden-import numpy ^
   --hidden-import cv2 ^
