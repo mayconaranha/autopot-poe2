@@ -165,6 +165,8 @@ class App:
         self._mana_threshold = self.config.get("mana_threshold", 30)
         self._life_key       = self.config.get("life_key", "1")
         self._mana_key       = self.config.get("mana_key", "2")
+        self._hotkey         = self.config.get("hotkey", HOTKEY)
+        self._hotkey_handle  = None
         self._hp_enabled     = self.config.get("hp_enabled", True)
         self._mana_enabled   = self.config.get("mana_enabled", True)
 
@@ -244,8 +246,9 @@ class App:
                  font=("Consolas", 14, "bold")).pack(side="left")
         tk.Label(hdr, text=" // Path of Exile 2", bg=C_CARD, fg=C_DIM,
                  font=("Consolas", 10)).pack(side="left")
-        tk.Label(hdr, text=f"{HOTKEY.upper()} = on/off", bg=C_CARD, fg=C_DIM,
-                 font=("Consolas", 9)).pack(side="right")
+        self.lbl_hotkey = tk.Label(hdr, text=f"{self._hotkey.upper()} = on/off",
+                                   bg=C_CARD, fg=C_DIM, font=("Consolas", 9))
+        self.lbl_hotkey.pack(side="right")
 
         # ── Status bar ───────────────────────────────────────────────────────
         sep()
@@ -314,6 +317,12 @@ class App:
         mk_ctrl = cfg_row(cfg, "Tecla flask mana:")
         self.ent_mana_key = key_entry(mk_ctrl, self._mana_key, self._on_mana_key_change)
         self.ent_mana_key.pack(side="left")
+
+        hk_ctrl = cfg_row(cfg, "Tecla liga/desliga:")
+        self.btn_hotkey = tk.Button(hk_ctrl, text=self._hotkey.upper(), bg=C_BG, fg=C_YELLOW,
+                                    font=("Consolas", 10, "bold"), relief="flat", cursor="hand2",
+                                    padx=12, pady=3, bd=0, command=self._capture_hotkey)
+        self.btn_hotkey.pack(side="left")
 
         self.lbl_region = tk.Label(cfg, text=self._fmt_region(), bg=C_BG, fg=C_DIM,
                                    font=("Consolas", 8), justify="left")
@@ -664,7 +673,47 @@ class App:
         threading.Thread(target=work, daemon=True).start()
 
     def _register_hotkey(self):
-        kb.add_hotkey(HOTKEY, lambda: self.root.after(0, self._toggle))
+        if self._hotkey_handle is not None:
+            try:
+                kb.remove_hotkey(self._hotkey_handle)
+            except Exception:
+                pass
+            self._hotkey_handle = None
+        try:
+            self._hotkey_handle = kb.add_hotkey(
+                self._hotkey, lambda: self.root.after(0, self._toggle))
+        except Exception:
+            self._log(f"Tecla '{self._hotkey}' inválida — liga/desliga sem atalho.")
+
+    def _capture_hotkey(self):
+        """Espera a próxima tecla e usa ela como liga/desliga."""
+        self.btn_hotkey.config(text="pressione…")
+        # tira o atalho atual pra ele não disparar durante a captura
+        if self._hotkey_handle is not None:
+            try:
+                kb.remove_hotkey(self._hotkey_handle)
+            except Exception:
+                pass
+            self._hotkey_handle = None
+
+        def work():
+            try:
+                key = kb.read_hotkey(suppress=False)
+            except Exception:
+                key = self._hotkey
+            self.root.after(0, lambda: self._set_hotkey(key))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _set_hotkey(self, key: str):
+        key = (key or self._hotkey).strip().lower()
+        self._hotkey = key
+        self.config["hotkey"] = key
+        save_config(self.config)
+        self._register_hotkey()
+        self.btn_hotkey.config(text=key.upper())
+        self.lbl_hotkey.config(text=f"{key.upper()} = on/off")
+        self._log(f"Tecla liga/desliga: {key.upper()}")
 
     def _close(self):
         self._running = False

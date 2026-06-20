@@ -39,7 +39,8 @@ OCR uma vez.
    - **Tecla flask vida / mana** — a tecla de cada flask (padrão `1` e `2`).
    - Botão **ON/OFF** em cada globo (VIDA e MANA) — liga ou desliga aquele flask
      sem precisar apagar a calibração.
-6. Aperte **F6** pra ligar/desligar o auto flask a qualquer momento.
+6. Aperte **F6** pra ligar/desligar o auto flask a qualquer momento. Quer outra
+   tecla? Clique no botão ao lado de **Tecla liga/desliga** e aperte a que quiser.
 
 ### Teclas automáticas
 
